@@ -82,6 +82,7 @@ tasks {
         exclude("*/app.log")
         exclude("*/auth_state/*")
         exclude("*/chats_state/*")
+        exclude("*/node_modules/*")
     }
 
     // Builds the version into a shared folder in `build/libs/${mod version}/`

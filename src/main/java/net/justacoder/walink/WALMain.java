@@ -34,6 +34,8 @@ public class WALMain implements ModInitializer {
     public static final String VERSION = /*$ mod_version*/ "0.1";
     public static final String MINECRAFT = /*$ minecraft*/ "1.21.10";
 
+    public static final Path WALINK_DATA = FabricLoader.getInstance().getGameDir().resolve("walink-data");
+
     private static InputStream nodeStdout;
     private static OutputStream nodeStdin;
     private static Thread ipcReadThread;
@@ -45,8 +47,6 @@ public class WALMain implements ModInitializer {
     static void initWALink() {
 
         LOGGER.info("Initializing WALink");
-
-        Path extractTarget = FabricLoader.getInstance().getGameDir().resolve("walink-data");
 
         Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(MOD_ID);
         if (container.isEmpty()) {
@@ -65,7 +65,7 @@ public class WALMain implements ModInitializer {
             paths.forEach(src -> {
                 try {
                     Path rel = bundledRoot.relativize(src);
-                    Path dest = extractTarget.resolve(rel.toString());
+                    Path dest = WALINK_DATA.resolve(rel.toString());
                     if (Files.isDirectory(src)) {
                         Files.createDirectories(dest);
                     } else {
@@ -83,7 +83,7 @@ public class WALMain implements ModInitializer {
         }
 
         ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.directory(extractTarget.toFile());
+        processBuilder.directory(WALINK_DATA.toFile());
         processBuilder.command("node", "main.js");
 
         try {
@@ -159,7 +159,19 @@ public class WALMain implements ModInitializer {
         try {
             processBuilder.start();
         } catch (IOException e) {
-            throw new RuntimeException("NodeJS could not be found or run. It is required for running WALink. Please install and put it in your path.");
+            throw new RuntimeException("NodeJS could not be found or run. It is required for running WALink. Please install and put it in your path.", e);
+        }
+
+        LOGGER.info("Downloading dependencies");
+
+        ProcessBuilder npmProcessBuilder = new ProcessBuilder();
+        npmProcessBuilder.directory(WALINK_DATA.toFile());
+        npmProcessBuilder.command(System.getProperty("os.name").startsWith("Windows") ? "npm.cmd" : "npm", "install");
+        try {
+            Process process = npmProcessBuilder.start();
+            process.waitFor();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to download dependencies via npm install. Please check if you have a working internet connection and NodeJS got installed properly.", e);
         }
 
         initWALink();
