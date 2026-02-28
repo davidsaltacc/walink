@@ -42,6 +42,6 @@ If you want the mod for a specific version, open an issue on the GitHub. ill try
 # TODOs/Future Plans
 
 TODO: configurable group chat name (right now its hardcoded)
-TODO: implement commands ( /vanish, /help, /auth - replace authentication on start with command, .help )
+TODO: implement commands ( /vanish - notify when person joins on the server and they have vanish on incase they forgot, /help, /auth - replace authentication on start with command, .help )
 TODO: properly escape stuff when sending to WA. expected behavior: escape stuff properly, for example: "*[Minecraft]* _justacoder\_ has left the server._" should appear with proper formatting, yet the _ in the username doesn't get escaped properly, leading to there being a trailing _ and incorrect formatting.
 TODO: resolve issue in scenario: auth state exists, though link removed in WA. expected behavior: reset auth state, re-request auth. current behavior: infinite blocking on startup

@@ -48,6 +48,10 @@ public class WALMain implements ModInitializer {
 
         LOGGER.info("Initializing WALink");
 
+        WALConfig.loadConfig();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(WALConfig::saveConfig, "WALink Shutdown Config Save"));
+
         Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(MOD_ID);
         if (container.isEmpty()) {
             LOGGER.error("This should not happen. Please reinstall WALink");
