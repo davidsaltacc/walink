@@ -4,6 +4,14 @@ Highly unstable Minecraft mod that links the in-game text chat to a WhatsApp gro
 
 Bugs and crashes may occur all the time, it's still very experimental.
 
+# Disclaimer
+
+I do not encourage the use of software to tamper with one's own WhatsApp account. This is merely for purposes of experimentation and a proof-of-concept.
+
+### Risks of using this software
+
+Realistically? Quite low. While I do not endorse using this mod, as it is against WhatsApp's TOS to use automation software on your account, this policy is most likely only in place to stop big scam operations. As long as you only use it on a small server with your friends, the real risk of getting your account terminated is extremely low. Besides, I cannot say this with 100% confidence, but I believe the baileys library impersonates the WhatsApp web protocol pretty well, and will not automatically light any major red flags without human review. 
+
 # Commands
 
 In Minecraft:
