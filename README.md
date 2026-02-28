@@ -7,14 +7,14 @@ Bugs and crashes may occur all the time, it's still very experimental.
 # Commands
 
 In Minecraft:
-- /walink help: Get a small help message about these commands.
-- /walink auth: Authenticates WALink with your WhatsApp account. Usually required to run only the first time, unless re-authentication is neccessary.
-- /walink vanish on/off: Allows your messages to not appear in the WhatsApp group chat.
+- /walink help: [NOT IMPLEMENTED] Get a small help message about these commands.
+- /walink auth: [NOT IMPLEMENTED] Authenticates WALink with your WhatsApp account. Usually required to run only the first time, unless re-authentication is neccessary.
+- /walink vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the WhatsApp group chat.
 - /walink restart: Restarts the WALink Node.js backend to resolve possible issues and freezes.
 
 In WhatsApp:
-- .mc help: Get a small help message about these commands.
-- .mc vanish on/off: Allows your messages to not appear in the Minecraft text chat
+- .mc help: [NOT IMPLEMENTED] Get a small help message about these commands.
+- .mc vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the Minecraft text chat
 - .mc players: Shows a list of the players currently on the server. /walink vanish does not protect from appearing in this list.
 
 # Technical Details
