@@ -1,0 +1,12 @@
+{
+    "required": true,
+    "package": "net.justacoder.walink.mixin",
+    "compatibilityLevel": "${java}",
+    "mixins": [
+        "PlayerManagerMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    },
+    "plugin": "net.justacoder.walink.mixin.WALMixinPlugin"
+}
