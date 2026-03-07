@@ -1,5 +1,6 @@
 package net.justacoder.walink;
 
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -7,10 +8,8 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.PlayerManager;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.text.Text;
-import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 public class WALMain implements ModInitializer {
@@ -32,36 +31,37 @@ public class WALMain implements ModInitializer {
     public static final String MOD_ID = "walink";
     public static final Logger LOGGER = LoggerFactory.getLogger("WALink");
     public static final String VERSION = /*$ mod_version*/ "0.1";
-    public static final String MINECRAFT = /*$ minecraft*/ "1.21.10";
-
+    public static final String MINECRAFT = /*$ minecraft*/ "1.21.11";
     public static final Path WALINK_DATA = FabricLoader.getInstance().getGameDir().resolve("walink-data");
 
+    private static MinecraftServer mcServer;
     private static InputStream nodeStdout;
     private static OutputStream nodeStdin;
-    private static Thread ipcReadThread;
     private static Process process;
-    private static CountDownLatch shutdownPoint;
 
-    private static MinecraftServer mcServer;
+    public static void onEarlyInit() {
 
-    static void initWALink() {
+        LOGGER.info("Checking for NodeJS");
+
+        ProcessBuilder nodeProcessBuilder = new ProcessBuilder();
+        nodeProcessBuilder.command("node", "-v");
+
+        try {
+            nodeProcessBuilder.start();
+        } catch (IOException e) {
+            throw new RuntimeException("NodeJS could not be found or run. It is required for running WALink. Please install and put it in your path.", e);
+        }
 
         LOGGER.info("Initializing WALink");
 
-        WALConfig.loadConfig();
-
-        Runtime.getRuntime().addShutdownHook(new Thread(WALConfig::saveConfig, "WALink Shutdown Config Save"));
-
         Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(MOD_ID);
         if (container.isEmpty()) {
-            LOGGER.error("This should not happen. Please reinstall WALink");
-            return;
+            throw new RuntimeException("This should not happen. What the hell did you do to end up here?");
         }
 
         Optional<Path> bundledOpt = container.get().findPath("bundled");
         if (bundledOpt.isEmpty()) {
-            LOGGER.error("This should not happen, WALink data was not found bundled with the mod. WALink will not work. Please reinstall WALink");
-            return;
+            throw new RuntimeException("This should not happen, WALink data was not found bundled with the mod. WALink will not work. Please reinstall WALink");
         }
         Path bundledRoot = bundledOpt.get();
 
@@ -86,86 +86,6 @@ public class WALMain implements ModInitializer {
             throw new RuntimeException(e);
         }
 
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.directory(WALINK_DATA.toFile());
-        processBuilder.command("node", "main.js");
-
-        try {
-
-            shutdownPoint = new CountDownLatch(1);
-
-            process = processBuilder.start();
-            Runtime.getRuntime().addShutdownHook(new Thread(WALMain::shutdownNode, "WALink IPC Shutdown"));
-
-            nodeStdout = process.getInputStream(); // okay, who the fuck decided to name these this way
-            nodeStdin = process.getOutputStream();
-
-            sendIPCMessage(new IPCMessage("gcnm", "test"));
-            sendIPCMessage(new IPCMessage("init", ""));
-
-            CountDownLatch readyPoint = new CountDownLatch(1);
-            ipcReadThread = new Thread(() -> {
-
-                while (shutdownPoint.getCount() > 0) {
-
-                    if (!process.isAlive()) {
-                        initWALink();
-                        throw new RuntimeException("NodeJS WALink backend exited unexpectedly.");
-                    }
-
-                    IPCMessage message = readIPCMessage();
-                    try {
-                        if (message.type.equals("wrdy")) {
-                            readyPoint.countDown();
-                        }
-                        if (message.type.equals("qrcd")) {
-                            LOGGER.info("Authentication QR code available at {} - please scan this to link WALink with your WhatsApp account.", message.data);
-                        }
-                        if (message.type.equals("sync")) {
-                            LOGGER.info("WhatsApp sync progress at {}%", message.data);
-                        }
-                        if (message.type.equals("nmsg")) {
-                            messageReceivedWA(mcServer, message.data);
-                        }
-                    } catch (Exception e) {
-                        LOGGER.error("Error handling IPC message", e);
-                    }
-                }
-
-            });
-
-            ipcReadThread.setName("WALink IPC Read");
-            ipcReadThread.start();
-            readyPoint.await();
-
-        } catch (Exception e) {
-            throw new RuntimeException("Error occurred while initializing WALink ", e);
-        }
-
-    }
-
-    private static void shutdownNode() {
-        shutdownPoint.countDown();
-        try {
-            process.destroy();
-        } catch (Exception e) {
-            LOGGER.error("Error while shutting down NodeJS process", e);
-        }
-    }
-
-    public static void onEarlyInit() {
-
-        LOGGER.info("Checking for NodeJS");
-
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.command("node", "-v");
-
-        try {
-            processBuilder.start();
-        } catch (IOException e) {
-            throw new RuntimeException("NodeJS could not be found or run. It is required for running WALink. Please install and put it in your path.", e);
-        }
-
         LOGGER.info("Downloading dependencies");
 
         ProcessBuilder npmProcessBuilder = new ProcessBuilder();
@@ -178,13 +98,98 @@ public class WALMain implements ModInitializer {
             throw new RuntimeException("Failed to download dependencies via npm install. Please check if you have a working internet connection and NodeJS got installed properly.", e);
         }
 
-        initWALink();
+        LOGGER.info("Launching Node.js backend");
 
-        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER) { // we can safely notify users even earlier than usual if running a dedicated server
-            sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _Server starting..._"));
+        ProcessBuilder processBuilder = new ProcessBuilder();
+        processBuilder.directory(WALINK_DATA.toFile());
+        processBuilder.command("node", "main.js");
+
+        try {
+            process = processBuilder.start();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to start Node.js backend", e);
         }
+        Runtime.getRuntime().addShutdownHook(new Thread(WALMain::shutdownNode, "WALink IPC Shutdown"));
+
+        nodeStdout = process.getInputStream(); // okay, who the fuck decided to name these this way
+        nodeStdin = process.getOutputStream();
+
+        new Thread(() -> {
+
+            while (process.isAlive()) {
+
+                IPCMessage message = readIPCMessage();
+
+                switch (message.type) {
+                    case "qrcd" -> {
+                        if (onQrCode != null) {
+                            onQrCode.accept(message.data);
+                        }
+                    }
+                    case "auer" -> {
+                        if (onAuthError != null) {
+                            onAuthError.accept(message.data);
+                        }
+                    }
+                    case "auok" -> {
+                        if (onAuthOk != null) {
+                            onAuthOk.accept(message.data);
+                        }
+                    }
+                    case "ster" -> {
+                        if (onStartError != null) {
+                            onStartError.accept(message.data);
+                        }
+                    }
+                    case "wrdy" -> {
+                        if (onBackendReady != null) {
+                            onBackendReady.accept(message.data);
+                        }
+                    }
+                    case "sync" -> {
+                        if (onSyncProgress != null) {
+                            onSyncProgress.accept(message.data);
+                        }
+                    }
+                    case "nmsg" -> messageReceivedWA(message.data);
+                    default -> LOGGER.warn("Received IPC Message with unknown type: {}", message.type);
+                }
+
+            }
+
+        }, "WALink IPC").start();
+
+        sendIPCMessage(new IPCMessage("init", ""));
+
+        onStartError = msg -> LOGGER.error("Error occurred while trying to start WALink: {}", msg);
+        onSyncProgress = msg -> LOGGER.info("Syncing chats, progress at {} percent", msg);
+        onBackendReady = ignored -> {
+            if (FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER) { // we can safely notify users even earlier than usual if running a dedicated server
+                sendIPCMessage(new IPCMessage("nmsg", "_Server starting..._"));
+            }
+        };
 
     }
+
+    public static void messageReceivedMC(String author, String content) {
+        sendIPCMessage(new IPCMessage("nmsg", author == null ? ("*" + escapeStringForWA(content) + "*") : ("*" + escapeStringForWA(author) + "*: " + escapeStringForWA(content))));
+    }
+
+    public static void messageReceivedWA(String content) {
+        mcServer.getPlayerManager().broadcast(Text.of(content), false);
+    }
+
+
+    public static String escapeStringForWA(String in) {
+        return in.replace("_", "ˍ").replace("*", "∗"); // this is the best solution. may look odd in some cases, but better than fucked up formatting
+    }
+
+    private static Consumer<String> onQrCode;
+    private static Consumer<String> onAuthError;
+    private static Consumer<String> onAuthOk;
+    private static Consumer<String> onStartError;
+    private static Consumer<String> onBackendReady;
+    private static Consumer<String> onSyncProgress;
 
     @Override
     public void onInitialize() {
@@ -192,78 +197,56 @@ public class WALMain implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
             mcServer = server;
             if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) { // if on a client, we need to notify about server startup only when the actual integrated server starts, not anything before
-                sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _Server starting..._"));
+                sendIPCMessage(new IPCMessage("nmsg", "_Server starting..._"));
             }
         });
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _Server started._")));
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _Server stopping._")));
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> sendIPCMessage(new IPCMessage("nmsg", "_Server started._")));
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> sendIPCMessage(new IPCMessage("nmsg", "_Server stopping._")));
 
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            dispatcher.register(
-                    CommandManager.literal(MOD_ID)
-                            .then(
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
+                CommandManager.literal(MOD_ID)
+                        .then(
                                 CommandManager.literal("vanish")
-                                    .then(CommandManager.literal("off"))
-                                    .then(CommandManager.literal("on"))
-                            ).then(
+                                        .then(CommandManager.literal("off"))
+                                        .then(CommandManager.literal("on"))
+                        ).then(
                                 CommandManager.literal("help")
-                            ).then(
+                        ).then(
                                 CommandManager.literal("restart").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
-                                    context.getSource().sendMessage(Text.of("Restarting WALink..."));
-                                    shutdownNode();
-                                    initWALink();
+                                    // TODO stop backend, restart anew
                                     return 1;
                                 })
-                            ).then(
-                                    CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK))
-                            )
-            );
-        });
+                        ).then(
+                                CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
+
+                                    onQrCode = qr -> context.getSource().sendMessage(Text.of("Authentication QR code available at " + qr + " - please scan this to link WALink with your WhatsApp account."));
+                                    onAuthError = msg -> context.getSource().sendMessage(Text.of("Error occurred while authenticating WALink: " + msg));
+                                    onAuthOk = empty -> context.getSource().sendMessage(Text.of("Successfully authenticated WALink with your WhatsApp account."));
+
+                                    sendIPCMessage(new IPCMessage("auth", ""));
+
+                                    return 1;
+                                })
+                        ).then(
+                                CommandManager.literal("config").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK))
+                                        .then(
+                                                CommandManager.literal("chat_name").then(
+                                                        CommandManager.argument("name", StringArgumentType.string()).executes(context -> {
+                                                            sendIPCMessage(new IPCMessage("gcnm", StringArgumentType.getString(context, "name")));
+                                                            return 1;
+                                                        })
+                                                )
+                                        )
+                        )
+        ));
 
     }
 
-    private static String escapeStringForWA(String in) {
-        return in.replace("*", "\u200c*\u200c").replace("_", "\u200c_\u200c");
-    }
-
-    public static void messageReceivedWA(@Nullable MinecraftServer server, String message) {
-
-        if (server == null) {
-            return;
-        }
-
-        String findStr = "§r: ";
-        int index = message.indexOf(findStr);
-        String msgSliced = "";
-        if (index > 0) {
-            msgSliced = message.substring(index + findStr.length());
-        }
-        if (msgSliced.startsWith(".mc")) {
-            String[] parts = msgSliced.split(" ");
-            if (parts.length <= 1) {
-                return;
-            }
-            if (parts[1].equals("players")) {
-                sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* Online: " + String.join("", server.getPlayerManager().getPlayerList().stream().map(player -> "\n- " + escapeStringForWA(player.getName().getString())).toList())));
-            }
-            if (parts[1].equals("help")) {
-
-            }
-            if (parts[1].equals("vanish")) {
-
-            }
-            return;
-        }
-
-        PlayerManager manager = server.getPlayerManager();
-        manager.broadcast(Text.of(message), false);
-    }
-
-    public static void messageReceivedMC(@Nullable String author, String message) {
-        if (author == null) {
-            sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _" + escapeStringForWA(message) + "_"));
-        } else {
-            sendIPCMessage(new IPCMessage("nmsg", "*[Minecraft]* _" + escapeStringForWA(author) + "_: " + escapeStringForWA(message)));
+    private static void shutdownNode() {
+        try {
+            process.destroy();
+        } catch (Exception e) {
+            LOGGER.error("Error while shutting down NodeJS process", e);
         }
     }
 
@@ -293,10 +276,10 @@ public class WALMain implements ModInitializer {
 
     private static void sendIPCMessage(IPCMessage message) {
         if (message.type.length() != 4) {
-            throw new Error("Trying to send IPC message with type length that isn't 4");
+            throw new RuntimeException("Trying to send IPC message with type length that isn't 4");
         }
         if (nodeStdin == null) {
-            throw new Error("Trying to send IPC message before initializing");
+            throw new RuntimeException("Trying to send IPC message before initializing");
         }
         try {
             String data = message.type + message.data;

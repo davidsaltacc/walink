@@ -21,9 +21,7 @@ public abstract class PlayerManagerMixin {
 
     @Inject(method = "broadcast(Lnet/minecraft/text/Text;Z)V", at = @At("HEAD"))
     private void onBroadcast(Text message, boolean overlay, CallbackInfo ci) {
-        if (!message.getString().startsWith("§2[")) {
-            WALMain.messageReceivedMC(null, message.getString());
-        }
+        WALMain.messageReceivedMC(null, message.getString());
     }
 
 }

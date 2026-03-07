@@ -3,16 +3,16 @@
   "id": "${id}",
   "version": "${version}",
   "name": "${name}",
-  "description": "Link a WhatsApp group chat to the ingame chat, bi-directionally synchronising all messages.",
+  "description": "Experimental mod to sync the ingame chat with a WhatsApp group chat.",
   "authors": [
-    "WALMain"
+    "WALink"
   ],
   "license": "MIT",
   "icon": "assets/walink/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": [
-      "net.justacoder.walink.WALMain"
+        "net.justacoder.walink.WALMain"
     ]
   },
   "mixins": [
@@ -22,6 +22,7 @@
   "depends": {
     "fabricloader": ">=0.15",
     "minecraft": "${minecraft}",
-	"fabric-api": "*"
+	"fabric-api": "*",
+    "java": "21"
   }
 }

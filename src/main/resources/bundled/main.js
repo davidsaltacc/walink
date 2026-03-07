@@ -1,24 +1,26 @@
+import { existsSync, mkdirSync, openAsBlob, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { createInterface } from "node:readline";
 import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState, makeCacheableSignalKeyStore } from "baileys";
-import { existsSync, mkdirSync, openAsBlob, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import P from "pino";
+import dateFormat from "dateformat";
 import NodeCache from "node-cache";
 import QRCode from "qrcode";
-import { sendIPCMessage, startReadingIPCMessages } from "./ipc.js";
-import { createInterface } from "node:readline";
+import P from "pino";
+
+const DEBUG = true;
 
 const { state, saveCreds } = await useMultiFileAuthState("auth_state");
 const groupCache = new NodeCache();
 
-const DEBUG = false;
-const DEBUG_MANUAL_MESSAGES = false;
-const DEBUG_GROUPCHAT_NAME = "test";
+if (!existsSync("logs")) {
+    mkdirSync("logs");
+}
 
 export const logger = P({
     transport: {
         target: "pino-pretty",
         options: {
             colorize: false,
-            destination: "./app.log"
+            destination: "logs/" + dateFormat("yyyy-mm-dd-HH-MM-ss") + ".log"
         }
     },
     level: "info"
@@ -30,11 +32,13 @@ let targetedGroupChatJid;
 let allChats = [];
 let allContacts = {};
 
-let sock;
+let globalSock;
 
-const makeSock = async () => {
+async function makeSock(forAuthOnly) {
+    
+    forAuthOnly = !!forAuthOnly;
 
-    let socket = makeWASocket({
+    const conf = {
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -46,139 +50,326 @@ const makeSock = async () => {
         browser: Browsers.windows("Google Chrome"),
         markOnlineOnConnect: false,
         syncFullHistory: false,
-        shouldSyncHistoryMessage: () => true, // this is required to not have a full sync be made, but still get messaging-history.set events
-        cachedGroupMetadata: async (jid) => groupCache.get(jid)
-    });
+        shouldSyncHistoryMessage: () => !forAuthOnly
+    };
+
+    if (!forAuthOnly) {
+        conf.cachedGroupMetadata = async (jid) => groupCache.get(jid);
+    }
+
+    return makeWASocket(conf);
+
+}
+
+async function authenticate(onQrCodeUrl, onFail) {
+       
+    let sock = await makeSock(true);
+
+    sock.ev.on("creds.update", saveCreds);
+
+    await new Promise((res, rej) => {
     
-    socket.ev.on("connection.update", async update => {
-        
-        const { connection, lastDisconnect, qr } = update;
+        const onUpdate = async update => {
 
-        if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
-            sock = await makeSock();
-        }
-        
-        if (qr) {
-            await QRCode.toFile("qrcode.png", qr, { errorCorrectionLevel: "M" });
-            const body = new FormData();
-            body.set("files[]", await openAsBlob("qrcode.png"), "qrcode.png");
-            let response = await fetch("https://uguu.se/upload?output=text", {
-                method: "POST",
-                body
-            });
-            let content = await response.text();
-            logger.info("QR code available at " + content + " - please scan with the WhatsApp mobile app to login.");
-            sendIPCMessage(process.stdout, "qrcd", content);
-            unlinkSync("qrcode.png");
-        }
+            try {
+            
+                const { connection, lastDisconnect, qr } = update;
 
-        if (connection === "open") {
-            if (existsSync("chats_state/contacts.json")) {
-                allContacts = JSON.parse(readFileSync("chats_state/contacts.json")) ?? allContacts;
+                if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
+                    sock = await makeSock(true);
+                    sock.ev.on("creds.update", saveCreds);
+                    sock.ev.on("connection.update", onUpdate);
+                } else if (connection === "close" && !!lastDisconnect?.error) {
+                    onFail(lastDisconnect?.error?.output);
+                    rej(lastDisconnect?.error?.output);
+                }
+
+                if (qr) {
+                    await QRCode.toFile("qrcode.png", qr, { errorCorrectionLevel: "M" });
+                    const body = new FormData();
+                    body.set("files[]", await openAsBlob("qrcode.png"), "qrcode.png");
+                    let response = await fetch("https://uguu.se/upload?output=text", {
+                        method: "POST",
+                        body
+                    });
+                    let content = await response.text();
+                    unlinkSync("qrcode.png");
+                    onQrCodeUrl(content);
+                }
+                
+                if (connection === "open") {
+                    res();
+                }
+
+            } catch (e) {
+                rej(e);
             }
-            if (existsSync("chats_state/chats.json")) {
-                allChats = JSON.parse(readFileSync("chats_state/chats.json")) ?? allChats;
+
+        };
+
+        sock.ev.on("connection.update", onUpdate);
+
+    });
+
+    sock.end();
+
+}
+
+async function startFull(onFail, onSyncProgress) {
+
+    if (targetedGroupchatName == null) {
+        onFail("Cannot start without having a valid group chat name.");
+        return;
+    }
+
+    if (globalSock != null) {
+        globalSock.end();
+    }
+
+    const makeFullSock = async (done, rej) => {
+
+        let sock = globalSock = await makeSock(false);
+        
+        sock.ev.on("creds.update", saveCreds);
+
+        sock.ev.on("connection.update", async update => {
+
+            try {
+            
+                const { connection, lastDisconnect, qr } = update;
+
+                if (qr) {
+                    onFail("Authentication not set up. Please link WALink before attempting a full start.");
+                    sock.end();
+                    done();
+                }
+
+                if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
+                    makeFullSock();
+                } else if (connection === "close" && !!lastDisconnect?.error) {
+                    onFail(lastDisconnect?.error?.output);
+                    rej(lastDisconnect?.error?.output);
+                }
+
+                if (connection === "open") {
+                    if (existsSync("chats_state/contacts.json")) {
+                        allContacts = JSON.parse(readFileSync("chats_state/contacts.json")) ?? allContacts;
+                    }
+                    if (existsSync("chats_state/chats.json")) {
+                        allChats = JSON.parse(readFileSync("chats_state/chats.json")) ?? allChats;
+                        allChats.forEach(chat => {
+                            if (chat.name === targetedGroupchatName && chat.id) {
+                                targetedGroupChatJid = chat.id;
+                            }
+                        });
+                        if (!targetedGroupChatJid) {
+                            onFail("Targeted group could not be found");
+                        }
+                        done();
+                    }
+                }
+
+            } catch (e) {
+                rej(e);
+            }
+
+        });
+
+        sock.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest, progress, syncType }) => {
+
+            allChats = allChats.concat(chats);
+            allChats = allChats.filter((chat, index) => {
+                return index === allChats.findIndex(c => c.id === chat.id);
+            });
+    
+            contacts.forEach(contact => {
+                allContacts[contact.id] = contact;
+            });
+            
+            onSyncProgress(progress ?? 0);
+    
+            if (progress === 100) {
                 allChats.forEach(chat => {
                     if (chat.name === targetedGroupchatName && chat.id) {
                         targetedGroupChatJid = chat.id;
                     }
                 });
                 if (!targetedGroupChatJid) {
-                    throw new Error("Targeted Group could not be found");
+                    onFail("Targeted group could not be found");
                 }
-                sendIPCMessage(process.stdout, "wrdy", "");
-                logger.info("Ready");
-            } 
+                if (!existsSync("chats_state")) {
+                    mkdirSync("chats_state");
+                }
+                writeFileSync("chats_state/chats.json", JSON.stringify(allChats));
+                writeFileSync("chats_state/contacts.json", JSON.stringify(allContacts));
+                done();
+            }
+    
+        });
+
+        function stringifyWAMessageForMC(msg, isReplyOriginal) {
+
+            if (isReplyOriginal) {
+                return "\"" + (msg.message?.conversation ?? "(unknown)") + "\"";
+            }
+
+            let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+    
+            if (text) {
+                text = text.replace(/(@[0-9]+)/gm, (match, id) => "§7@<unknown>§r"); 
+            }
+
+            let author = msg.pushName ?? "<unknown>";
+
+            let finalText = "§7" + author + "§r: ";
+            
+            if (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage) { finalText += "§7(in reply to " + stringifyWAMessageForMC(msg.message?.extendedTextMessage?.contextInfo?.quotedMessage, true) + ")§r "; } 
+            if (msg.message?.imageMessage) { finalText += "<image> "; } 
+            else if (msg.message?.documentMessage) { finalText += "<file> "; } 
+            else if (msg.message?.audioMessage) { finalText += "<voice message> "; }
+            else if (msg.message?.stickerMessage) { finalText += "<sticker> "; }
+            else if (msg.message?.viewOnceMessage) { finalText += "<view-once message> "; }
+            else if (msg.message?.viewOnceMessageV2) { finalText += "<view-once message> "; }
+            finalText += text ?? "";
+            
+            return finalText;
 
         }
-    
-    });
-    
-    socket.ev.on("creds.update", saveCreds);
-    
-    socket.ev.on("messages.upsert", async ({type, messages}) => {
-        try {
-            if (type === "notify") {
-                for (const msg of messages) {
-                    if (msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage || msg.message?.documentMessage || msg.message?.audioMessage) {
-                        
-                        let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
 
-                        if (text) {
-                            text = text.replace(/(@[0-9]+)/gm, (match, id) => "§7@<unknown>§r");
+        sock.ev.on("messages.upsert", async ({type, messages}) => {
+            try {
+                if (type === "notify") {
+                    for (const msg of messages) {
+                        if (msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage || msg.message?.documentMessage || msg.message?.audioMessage || msg.message?.stickerMessage || msg.message?.viewOnceMessage || msg.message?.viewOnceMessageV2) {
+                           
+                            if (msg.key?.remoteJid !== targetedGroupChatJid) { return; }
+                    
+                            await messageReceivedWA(stringifyWAMessageForMC(msg, false));
+                            
                         }
-        
-                        if (msg.key?.remoteJid !== targetedGroupChatJid) { return; }
-
-                        let author = msg.pushName ?? "<unknown>";
-
-                        let finalText = "§2[WhatsApp]§r §7" + author + "§r: ";
-                        
-                        if (msg.message?.commentMessage) { finalText += "§7(in reply to another message)§r "; } 
-                        if (msg.message?.imageMessage) { finalText += "<image> "; } 
-                        else if (msg.message?.documentMessage) { finalText += "<file> "; } 
-                        else if (msg.message?.audioMessage) { finalText += "<voice message> "; }
-                        finalText += text ?? "";
-
-                        await messageReceivedWA(finalText);
-                        
                     }
                 }
+            } catch (e) {
+                logger.error(e);
             }
+        });
+
+    }
+
+    await new Promise((res, rej) => {
+        try {
+            makeFullSock(res, rej);
         } catch (e) {
-            logger.error(e);
+            onFail(e);
         }
     });
 
-    socket.ev.on("messaging-history.set", async ({ chats, contacts, messages, isLatest, progress, syncType }) => {
+}
 
-        allChats = allChats.concat(chats);
-        allChats = allChats.filter((chat, index) => {
-            return index === allChats.findIndex(c => c.id === chat.id);
-        });
+function startReadingIPCMessages(stdin, handler) {
+    let buffer = Buffer.alloc(0);
+    stdin.on("readable", async () => {
+        let chunk;
+        while ((chunk = stdin.read()) !== null) {
+            buffer = Buffer.concat([buffer, chunk]);
 
-        contacts.forEach(contact => {
-            allContacts[contact.id] = contact;
-        });
+            while (buffer.length >= 4) {
+                const msgLength = buffer.readUInt32BE(0);
 
-        logger.info("sync progress " + (progress ?? 0) + "%");
-        sendIPCMessage(process.stdout, "sync", progress ?? 0);
-
-        if (progress === 100) {
-            allChats.forEach(chat => {
-                if (chat.name === targetedGroupchatName && chat.id) {
-                    targetedGroupChatJid = chat.id;
+                if (buffer.length < 4 + msgLength) {
+                    break;
                 }
-            });
-            if (!existsSync("chats_state")) {
-                mkdirSync("chats_state");
+
+                const dataBuf = buffer.subarray(4, 4 + msgLength);
+                const dataUtf8 = dataBuf.toString("utf8");
+
+                const msg = {
+                    type: dataUtf8.substring(0, 4),
+                    data: dataUtf8.substring(4),
+                };
+
+                await handler(msg);
+
+                buffer = buffer.subarray(4 + msgLength);
             }
-            if (!existsSync("chats_state/chats.json")) {
-                sendIPCMessage(process.stdout, "wrdy", "");
-                logger.info("Ready");
-            }
-            writeFileSync("chats_state/chats.json", JSON.stringify(allChats));
-            writeFileSync("chats_state/contacts.json", JSON.stringify(allContacts));
         }
-
     });
+    stdin.resume();
+}
 
-    return socket;
+function sendIPCMessage(type, content) {
+    if (type.length !== 4) {
+        logger.error("IPC message type must be 4 characters");
+        return;
+    }
+    const data = type + content;
+    if (DEBUG) {
+        console.log(data);
+        return;
+    }
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32BE(Buffer.byteLength(data, "utf8"));
+    writeSync(1, Buffer.concat([ buf, Buffer.from(data, "utf8") ]));
+}
 
-};
+async function messageReceivedWA(message) {
+    sendIPCMessage("nmsg", "§2[WhatsApp]§r " + message); // new message
+}
 
-const messageReceivedWA = async text => {
-    sendIPCMessage(process.stdout, "nmsg", text);
-};
+async function messageReceivedMC(message) {
+    if (!globalSock) {
+        return;
+    }
+    await globalSock.sendMessage(targetedGroupChatJid, { text: "*[Minecraft]* " + message });
+}
 
-const messageReceivedMC = async text => {
-    await sock.sendMessage(targetedGroupChatJid, { text });
-};
+// TODO if any instance of socket exists and is alive, ignore all (init, auth, ...), otherwise calling /auth or /init twice will cause issues
 
-if (DEBUG && !DEBUG_MANUAL_MESSAGES) {
-    targetedGroupchatName = DEBUG_GROUPCHAT_NAME;
-    sock = await makeSock();
-} else if (DEBUG && DEBUG_MANUAL_MESSAGES) {
+async function ipcMessageReceived(type, content) {
+    logger.info("received " + type + " message");
+    try {
+        switch (type) {
+            case "auth": { // auth
+                await authenticate(qrUrl => {
+                    logger.info("QR code received at url " + qrUrl);
+                    sendIPCMessage("qrcd", qrUrl); // qr code
+                }, reason => {
+                    sendIPCMessage("auer", "" + reason); // auth error
+                    logger.error("Issue occured trying to authenticate: " + reason);
+                });
+                sendIPCMessage("auok", ""); // auth ok
+                break;
+            }
+            case "gcnm": { // groupchat name
+                targetedGroupchatName = content;
+                break;
+            }
+            case "init": { // init
+                await startFull(reason => {
+                    sendIPCMessage("ster", "" + reason); // start error
+                    logger.error("Issue occured trying to start: " + reason);
+                }, progress => {
+                    sendIPCMessage("sync", "" + progress); // sync progress
+                    logger.info("Sync progress at " + progress);
+                });
+                sendIPCMessage("wrdy", ""); // ready
+                break;
+            }
+            case "nmsg": { // new message
+                await messageReceivedMC(content);
+                break;
+            }
+            default: {
+                logger.warn("Received message of unknown type: " + type);
+                break;
+            }
+        }
+    } catch (e) {
+        logger.error("Error occured while trying to handle IPC message: " + e);
+    }
+}
+
+if (DEBUG) {
     const rl = createInterface({
         input: process.stdin,
         output: process.stdout
@@ -186,38 +377,16 @@ if (DEBUG && !DEBUG_MANUAL_MESSAGES) {
     const inp = () => {
         rl.question("type+content:", async msg => {
             const type = msg.substring(0, 4);
-            const data = msg.substring(4);
-            logger.info("received " + type + " message");
-            if (type === "gcnm") {
-                targetedGroupchatName = data;
-            }
-            if (type === "init") {
-                sock = await makeSock();
-            }
-            if (type === "nmsg") {
-                await messageReceivedMC(data);
-            }
+            const comment = msg.substring(4);
+            await ipcMessageReceived(type, comment);
             inp();
         });
     };
     inp();
 } else {
-    try {
-        startReadingIPCMessages(process.stdin, async msg => {
-            const {type, data} = msg;
-            logger.info("received " + type + " message");
-            if (type === "gcnm") {
-                targetedGroupchatName = data;
-            }
-            if (type === "init") {
-                sock = await makeSock();
-            }
-            if (type === "nmsg") {
-                await messageReceivedMC(data);
-            }
-        });
-    } catch (e) {
-        logger.error(e);
-        throw e;
-    }
+    startReadingIPCMessages(process.stdin, async msg => {
+        const { type, content } = msg;
+        await ipcMessageReceived(type, content);
+    });
 }
+
