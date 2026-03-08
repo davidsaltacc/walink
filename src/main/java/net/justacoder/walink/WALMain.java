@@ -9,13 +9,18 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
+import net.minecraft.text.ClickEvent;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -254,13 +259,23 @@ public class WALMain implements ModInitializer {
                         ).then(
                                 CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
                                     // next
-                                    // TODO clickable link here
                                     // TODO in backend, filter out WALink messages from normal messages
                                     // TODO help command here
                                     // TODO .players and .help command in backend
                                     // TODO vanish commands (both ends)
                                     // TODO config saving and editing etc etc
-                                    onQrCode = qr -> context.getSource().sendMessage(Text.of("Authentication QR code available at " + qr + " - please scan this to link WALink with your WhatsApp account."));
+                                    onQrCode = qr -> {
+                                        MutableText message = Text.literal("Authentication QR code available at ");
+                                        message.append(Text.literal(qr.strip()).styled(style -> {
+                                            try {
+                                                return style.withUnderline(true).withColor(Formatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(new URI(qr.strip())));
+                                            } catch (URISyntaxException e) {
+                                                throw new RuntimeException("This should not happen. Invalid QR code image URL received", e);
+                                            }
+                                        }));
+                                        message.append(" - please scan this to link WALink with your WhatsApp account.");
+                                        context.getSource().sendMessage(message);
+                                    };
                                     onAuthError = msg -> context.getSource().sendMessage(Text.of("Error occurred while authenticating WALink: " + msg));
                                     onAuthOk = empty -> context.getSource().sendMessage(Text.of("Successfully authenticated WALink with your WhatsApp account."));
 
