@@ -136,6 +136,11 @@ public class WALMain implements ModInitializer {
                             onAuthOk.accept(message.data);
                         }
                     }
+                    case "daok" -> {
+                        if (onDeAuthOk != null) {
+                            onDeAuthOk.accept(message.data);
+                        }
+                    }
                     case "ster" -> {
                         if (onStartError != null) {
                             onStartError.accept(message.data);
@@ -149,6 +154,16 @@ public class WALMain implements ModInitializer {
                     case "sync" -> {
                         if (onSyncProgress != null) {
                             onSyncProgress.accept(message.data);
+                        }
+                    }
+                    case "scls" -> {
+                        if (onClosedSock != null) {
+                            onClosedSock.accept(message.data);
+                        }
+                    }
+                    case "clok" -> {
+                        if (onLogsCleared != null) {
+                            onLogsCleared.accept(message.data);
                         }
                     }
                     case "nmsg" -> messageReceivedWA(message.data);
@@ -172,7 +187,7 @@ public class WALMain implements ModInitializer {
     }
 
     public static void messageReceivedMC(String author, String content) {
-        sendIPCMessage(new IPCMessage("nmsg", author == null ? ("*" + escapeStringForWA(content) + "*") : ("*" + escapeStringForWA(author) + "*: " + escapeStringForWA(content))));
+        sendIPCMessage(new IPCMessage("nmsg", author == null ? ("_" + escapeStringForWA(content) + "_") : ("_" + escapeStringForWA(author) + "_: " + escapeStringForWA(content))));
     }
 
     public static void messageReceivedWA(String content) {
@@ -187,9 +202,12 @@ public class WALMain implements ModInitializer {
     private static Consumer<String> onQrCode;
     private static Consumer<String> onAuthError;
     private static Consumer<String> onAuthOk;
+    private static Consumer<String> onDeAuthOk;
     private static Consumer<String> onStartError;
     private static Consumer<String> onBackendReady;
     private static Consumer<String> onSyncProgress;
+    private static Consumer<String> onClosedSock;
+    private static Consumer<String> onLogsCleared;
 
     @Override
     public void onInitialize() {
@@ -212,13 +230,36 @@ public class WALMain implements ModInitializer {
                         ).then(
                                 CommandManager.literal("help")
                         ).then(
+                                CommandManager.literal("stop").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
+
+                                    onClosedSock = ignored -> context.getSource().sendMessage(Text.of("Successfully stopped WALink"));
+
+                                    sendIPCMessage(new IPCMessage("stop", ""));
+
+                                    return 1;
+                                })
+                        ).then(
                                 CommandManager.literal("restart").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
-                                    // TODO stop backend, restart anew
+
+                                    onClosedSock = ignored -> {
+                                        onStartError = msg -> context.getSource().sendMessage(Text.of("Error occurred while trying to start WALink: " + msg));
+                                        onSyncProgress = msg -> context.getSource().sendMessage(Text.of("Syncing chats, progress at " + msg + " percent"));
+                                        onBackendReady = ignored2 -> context.getSource().sendMessage(Text.of("Successfully restarted WALink"));
+                                    };
+
+                                    sendIPCMessage(new IPCMessage("stop", ""));
+
                                     return 1;
                                 })
                         ).then(
                                 CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
-
+                                    // next
+                                    // TODO clickable link here
+                                    // TODO in backend, filter out WALink messages from normal messages
+                                    // TODO help command here
+                                    // TODO .players and .help command in backend
+                                    // TODO vanish commands (both ends)
+                                    // TODO config saving and editing etc etc
                                     onQrCode = qr -> context.getSource().sendMessage(Text.of("Authentication QR code available at " + qr + " - please scan this to link WALink with your WhatsApp account."));
                                     onAuthError = msg -> context.getSource().sendMessage(Text.of("Error occurred while authenticating WALink: " + msg));
                                     onAuthOk = empty -> context.getSource().sendMessage(Text.of("Successfully authenticated WALink with your WhatsApp account."));
@@ -233,10 +274,29 @@ public class WALMain implements ModInitializer {
                                                 CommandManager.literal("chat_name").then(
                                                         CommandManager.argument("name", StringArgumentType.string()).executes(context -> {
                                                             sendIPCMessage(new IPCMessage("gcnm", StringArgumentType.getString(context, "name")));
+                                                            context.getSource().sendMessage(Text.of("Successfully set group chat name"));
                                                             return 1;
                                                         })
                                                 )
                                         )
+                        ).then(
+                                CommandManager.literal("deauth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
+
+                                    onDeAuthOk = ignored -> context.getSource().sendMessage(Text.of("Successfully deauthenticated WALink"));
+
+                                    sendIPCMessage(new IPCMessage("deau", ""));
+
+                                    return 1;
+                                })
+                        ).then(
+                                CommandManager.literal("clear_logs").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
+
+                                    onLogsCleared = ignored -> context.getSource().sendMessage(Text.of("Successfully cleared logs"));
+
+                                    sendIPCMessage(new IPCMessage("cllo", ""));
+
+                                    return 1;
+                                })
                         )
         ));
 
@@ -265,6 +325,7 @@ public class WALMain implements ModInitializer {
                 return new IPCMessage("", "");
             }
             String content = new String(data, StandardCharsets.UTF_8);
+            LOGGER.info("Read IPC message of type {}", content.substring(0, 4));
             return new IPCMessage(
                     content.substring(0, 4),
                     content.substring(4)

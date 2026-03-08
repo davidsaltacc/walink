@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, openAsBlob, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, mkdirSync, openAsBlob, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState, makeCacheableSignalKeyStore } from "baileys";
 import dateFormat from "dateformat";
@@ -6,7 +6,7 @@ import NodeCache from "node-cache";
 import QRCode from "qrcode";
 import P from "pino";
 
-const DEBUG = true;
+const DEBUG = false;
 
 const { state, saveCreds } = await useMultiFileAuthState("auth_state");
 const groupCache = new NodeCache();
@@ -15,12 +15,14 @@ if (!existsSync("logs")) {
     mkdirSync("logs");
 }
 
-export const logger = P({
+const logFile = dateFormat("yyyy-mm-dd-HH-MM-ss") + ".log";
+
+const logger = P({
     transport: {
         target: "pino-pretty",
         options: {
             colorize: false,
-            destination: "logs/" + dateFormat("yyyy-mm-dd-HH-MM-ss") + ".log"
+            destination: "logs/" + logFile
         }
     },
     level: "info"
@@ -32,11 +34,17 @@ let targetedGroupChatJid;
 let allChats = [];
 let allContacts = {};
 
-let globalSock;
+if (existsSync("chats_state/contacts.json")) {
+    allContacts = JSON.parse(readFileSync("chats_state/contacts.json")) ?? allContacts;
+}
+if (existsSync("chats_state/chats.json")) {
+    allChats = JSON.parse(readFileSync("chats_state/chats.json")) ?? allChats;
+}
 
-async function makeSock(forAuthOnly) {
-    
-    forAuthOnly = !!forAuthOnly;
+let globalSock;
+let anySockExists = false;
+
+async function makeDefaultSock() {
 
     const conf = {
         auth: {
@@ -50,22 +58,27 @@ async function makeSock(forAuthOnly) {
         browser: Browsers.windows("Google Chrome"),
         markOnlineOnConnect: false,
         syncFullHistory: false,
-        shouldSyncHistoryMessage: () => !forAuthOnly
+        shouldSyncHistoryMessage: () => true,
+        cachedGroupMetadata: async (jid) => groupCache.get(jid)
     };
 
-    if (!forAuthOnly) {
-        conf.cachedGroupMetadata = async (jid) => groupCache.get(jid);
-    }
+    const sock = makeWASocket(conf);
+    
+    sock.ev.on("creds.update", saveCreds);
 
-    return makeWASocket(conf);
+    return sock;
 
 }
 
 async function authenticate(onQrCodeUrl, onFail) {
-       
-    let sock = await makeSock(true);
 
-    sock.ev.on("creds.update", saveCreds);
+    if (anySockExists) {
+        onFail("Another instance of a WhatsApp socket is already running. Please stop or wait for any other processes to stop.");
+        return;
+    }
+
+    anySockExists = true;
+    let sock = await makeDefaultSock();
 
     await new Promise((res, rej) => {
     
@@ -76,7 +89,7 @@ async function authenticate(onQrCodeUrl, onFail) {
                 const { connection, lastDisconnect, qr } = update;
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
-                    sock = await makeSock(true);
+                    sock = await makeDefaultSock(true);
                     sock.ev.on("creds.update", saveCreds);
                     sock.ev.on("connection.update", onUpdate);
                 } else if (connection === "close" && !!lastDisconnect?.error) {
@@ -111,7 +124,8 @@ async function authenticate(onQrCodeUrl, onFail) {
 
     });
 
-    sock.end();
+    await sock.end();
+    anySockExists = false;
 
 }
 
@@ -122,15 +136,16 @@ async function startFull(onFail, onSyncProgress) {
         return;
     }
 
-    if (globalSock != null) {
-        globalSock.end();
+    if (anySockExists) {
+        onFail("Another instance of a WhatsApp socket is already running. Please stop or wait for any other processes to stop.");
+        return;
     }
+
+    anySockExists = true;
 
     const makeFullSock = async (done, rej) => {
 
-        let sock = globalSock = await makeSock(false);
-        
-        sock.ev.on("creds.update", saveCreds);
+        let sock = globalSock = await makeDefaultSock(false);
 
         sock.ev.on("connection.update", async update => {
 
@@ -140,7 +155,7 @@ async function startFull(onFail, onSyncProgress) {
 
                 if (qr) {
                     onFail("Authentication not set up. Please link WALink before attempting a full start.");
-                    sock.end();
+                    await sock.end();
                     done();
                 }
 
@@ -152,11 +167,7 @@ async function startFull(onFail, onSyncProgress) {
                 }
 
                 if (connection === "open") {
-                    if (existsSync("chats_state/contacts.json")) {
-                        allContacts = JSON.parse(readFileSync("chats_state/contacts.json")) ?? allContacts;
-                    }
                     if (existsSync("chats_state/chats.json")) {
-                        allChats = JSON.parse(readFileSync("chats_state/chats.json")) ?? allChats;
                         allChats.forEach(chat => {
                             if (chat.name === targetedGroupchatName && chat.id) {
                                 targetedGroupChatJid = chat.id;
@@ -264,6 +275,8 @@ async function startFull(onFail, onSyncProgress) {
         }
     });
 
+    anySockExists = false;
+
 }
 
 function startReadingIPCMessages(stdin, handler) {
@@ -285,7 +298,7 @@ function startReadingIPCMessages(stdin, handler) {
 
                 const msg = {
                     type: dataUtf8.substring(0, 4),
-                    data: dataUtf8.substring(4),
+                    data: dataUtf8.substring(4)
                 };
 
                 await handler(msg);
@@ -323,8 +336,6 @@ async function messageReceivedMC(message) {
     await globalSock.sendMessage(targetedGroupChatJid, { text: "*[Minecraft]* " + message });
 }
 
-// TODO if any instance of socket exists and is alive, ignore all (init, auth, ...), otherwise calling /auth or /init twice will cause issues
-
 async function ipcMessageReceived(type, content) {
     logger.info("received " + type + " message");
     try {
@@ -340,9 +351,29 @@ async function ipcMessageReceived(type, content) {
                 sendIPCMessage("auok", ""); // auth ok
                 break;
             }
+            case "deau": { // deauth
+                if (globalSock != null) {
+                    await globalSock.logout();
+                }
+                if (existsSync("auth_state")) { 
+                    rmdirSync("auth_state", { recursive: true });
+                }
+                if (existsSync("chats_state")) { 
+                    rmdirSync("chats_state", { recursive: true });
+                }
+                sendIPCMessage("daok", ""); // deauth ok
+                break;
+            }
             case "gcnm": { // groupchat name
+                logger.info("Setting group chat name to " + content);
                 targetedGroupchatName = content;
                 break;
+            }
+            case "stop": { // stop
+                if (globalSock != null) {
+                    await globalSock.end();
+                }
+                sendIPCMessage("scls", ""); // socket closed
             }
             case "init": { // init
                 await startFull(reason => {
@@ -357,6 +388,15 @@ async function ipcMessageReceived(type, content) {
             }
             case "nmsg": { // new message
                 await messageReceivedMC(content);
+                break;
+            }
+            case "cllo": { // clear logs
+                readdirSync("logs").forEach(file => {
+                    if (!file.endsWith(logFile)) {
+                        unlinkSync(file);
+                    }
+                });
+                sendIPCMessage("clok", ""); // clear logs ok
                 break;
             }
             default: {
@@ -377,16 +417,16 @@ if (DEBUG) {
     const inp = () => {
         rl.question("type+content:", async msg => {
             const type = msg.substring(0, 4);
-            const comment = msg.substring(4);
-            await ipcMessageReceived(type, comment);
+            const content = msg.substring(4);
+            await ipcMessageReceived(type, content);
             inp();
         });
     };
     inp();
 } else {
     startReadingIPCMessages(process.stdin, async msg => {
-        const { type, content } = msg;
-        await ipcMessageReceived(type, content);
+        const { type, data } = msg;
+        await ipcMessageReceived(type, data);
     });
 }
 
