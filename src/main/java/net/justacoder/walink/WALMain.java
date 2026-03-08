@@ -50,7 +50,7 @@ public class WALMain implements ModInitializer {
             - /walink clear_logs: Clears old logs (except the one for the current run).""";
 
     // TODO
-    // config saving and editing via commands
+    // actually do something with config options, right now is hardcoded in js code
     // vanishing
 
     private static MinecraftServer mcServer;
