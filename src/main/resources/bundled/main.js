@@ -393,7 +393,7 @@ async function ipcMessageReceived(type, content) {
             case "cllo": { // clear logs
                 readdirSync("logs").forEach(file => {
                     if (!file.endsWith(logFile)) {
-                        unlinkSync(file);
+                        unlinkSync("logs/" + file);
                     }
                 });
                 sendIPCMessage("clok", ""); // clear logs ok
