@@ -38,6 +38,20 @@ public class WALMain implements ModInitializer {
     public static final String VERSION = /*$ mod_version*/ "0.1";
     public static final String MINECRAFT = /*$ minecraft*/ "1.21.11";
     public static final Path WALINK_DATA = FabricLoader.getInstance().getGameDir().resolve("walink-data");
+    public static final String HELP_TEXT = """
+            §a§lWALink command overview§r
+            - /walink help: Show this.
+            - /walink auth: Authenticates WALink with your WhatsApp account. Usually required to run only the first time, unless re-authentication is neccessary. In your WhatsApp app, WALink will appear listed as "Google Chrome (Windows)", as the underlying library imitates a WhatsApp Web instance.
+            - /walink deauth: Deauthenticate WALink from your WhatsApp account. WALink needs to be running for it to be unlinked in the WhatsApp app, otherwise it will remain in the app (a zombie, really. WALink will ask for new authentication next time). Useful when issues concerning authentication/login occur.
+            - /walink vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the WhatsApp group chat.
+            - /walink stop: Stops WALink. Can be restarted with /restart.
+            - /walink restart: Restarts the WALink Node.js backend to resolve possible issues and freezes, or just starts it if it wasn't started before.
+            - /walink config chat_name: Set the target group chat name. Warning: It has to be a unique group chat name, and needs to exactly match the name. If two group chats with the same name exist, it is essentially a gamble where the messages will end up in.
+            - /walink clear_logs: Clears old logs (except the one for the current run).""";
+
+    // TODO
+    // config saving and editing via commands
+    // vanishing
 
     private static MinecraftServer mcServer;
     private static InputStream nodeStdout;
@@ -171,6 +185,18 @@ public class WALMain implements ModInitializer {
                             onLogsCleared.accept(message.data);
                         }
                     }
+                    case "lply" -> {
+                        if (mcServer == null) {
+                            sendIPCMessage(new IPCMessage("plyl", "Server not started."));
+                        }
+                        String text = String.join("\n", mcServer.getPlayerManager().getPlayerList().stream().map(p -> "- " + escapeStringForWA(p.getName().getString())).toList());
+                        if (text.isEmpty()) {
+                            text = "No players are currently online.";
+                        } else {
+                            text = "Currently online:\n" + text;
+                        }
+                        sendIPCMessage(new IPCMessage("plyl", text));
+                    }
                     case "nmsg" -> messageReceivedWA(message.data);
                     default -> LOGGER.warn("Received IPC Message with unknown type: {}", message.type);
                 }
@@ -233,7 +259,10 @@ public class WALMain implements ModInitializer {
                                         .then(CommandManager.literal("off"))
                                         .then(CommandManager.literal("on"))
                         ).then(
-                                CommandManager.literal("help")
+                                CommandManager.literal("help").executes(context -> {
+                                    context.getSource().sendMessage(Text.of(HELP_TEXT));
+                                    return 1;
+                                })
                         ).then(
                                 CommandManager.literal("stop").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
 
@@ -258,17 +287,11 @@ public class WALMain implements ModInitializer {
                                 })
                         ).then(
                                 CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
-                                    // next
-                                    // TODO in backend, filter out WALink messages from normal messages
-                                    // TODO help command here
-                                    // TODO .players and .help command in backend
-                                    // TODO vanish commands (both ends)
-                                    // TODO config saving and editing etc etc
                                     onQrCode = qr -> {
                                         MutableText message = Text.literal("Authentication QR code available at ");
                                         message.append(Text.literal(qr.strip()).styled(style -> {
                                             try {
-                                                return style.withUnderline(true).withColor(Formatting.BLUE).withClickEvent(new ClickEvent.OpenUrl(new URI(qr.strip())));
+                                                return style.withUnderline(true).withColor(Formatting.DARK_BLUE).withClickEvent(new ClickEvent.OpenUrl(new URI(qr.strip())));
                                             } catch (URISyntaxException e) {
                                                 throw new RuntimeException("This should not happen. Invalid QR code image URL received", e);
                                             }

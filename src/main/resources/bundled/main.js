@@ -44,7 +44,7 @@ if (existsSync("chats_state/chats.json")) {
 let globalSock;
 let anySockExists = false;
 
-async function makeDefaultSock() {
+async function makeSock(isForAuth) {
 
     const conf = {
         auth: {
@@ -58,7 +58,7 @@ async function makeDefaultSock() {
         browser: Browsers.windows("Google Chrome"),
         markOnlineOnConnect: false,
         syncFullHistory: false,
-        shouldSyncHistoryMessage: () => true,
+        shouldSyncHistoryMessage: () => !isForAuth,
         cachedGroupMetadata: async (jid) => groupCache.get(jid)
     };
 
@@ -78,7 +78,7 @@ async function authenticate(onQrCodeUrl, onFail) {
     }
 
     anySockExists = true;
-    let sock = await makeDefaultSock();
+    let sock = await makeSock(true);
 
     await new Promise((res, rej) => {
     
@@ -89,7 +89,7 @@ async function authenticate(onQrCodeUrl, onFail) {
                 const { connection, lastDisconnect, qr } = update;
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
-                    sock = await makeDefaultSock(true);
+                    sock = await makeSock(true);
                     sock.ev.on("creds.update", saveCreds);
                     sock.ev.on("connection.update", onUpdate);
                 } else if (connection === "close" && !!lastDisconnect?.error) {
@@ -145,7 +145,7 @@ async function startFull(onFail, onSyncProgress) {
 
     const makeFullSock = async (done, rej) => {
 
-        let sock = globalSock = await makeDefaultSock(false);
+        let sock = globalSock = await makeSock(false);
 
         sock.ev.on("connection.update", async update => {
 
@@ -255,7 +255,7 @@ async function startFull(onFail, onSyncProgress) {
                            
                             if (msg.key?.remoteJid !== targetedGroupChatJid) { return; }
                     
-                            await messageReceivedWA(stringifyWAMessageForMC(msg, false));
+                            await messageReceivedWA(stringifyWAMessageForMC(msg, false), msg);
                             
                         }
                     }
@@ -325,12 +325,39 @@ function sendIPCMessage(type, content) {
     writeSync(1, Buffer.concat([ buf, Buffer.from(data, "utf8") ]));
 }
 
-async function messageReceivedWA(message) {
+let onPlayerListReceived;
+
+async function messageReceivedWA(message, originalMsgObj) {
+    if (message.includes("*[Minecraft]* ")) {
+        return;
+    }
+    if (message.split("§r: ")[1].startsWith(".mc")) {
+        let parts = message.split("§r: ")[1].split(" ");
+        if (parts.length <= 1) {
+            return;
+        }
+        if (parts[1] === "help") {
+            await globalSock.sendMessage(targetedGroupChatJid, { text: `
+*WALink command overview*
+- .mc help: Shows this.
+- .mc players: Shows a list of currently online players.
+            `.trim() }, { quoted: originalMsgObj });
+        } else if (parts[1] === "players") {
+            sendIPCMessage("lply", ""); // list players
+            onPlayerListReceived = async msg => await globalSock.sendMessage(targetedGroupChatJid, { text: msg }, { quoted: originalMsgObj });
+        } else {
+            await globalSock.sendMessage(targetedGroupChatJid, { text: "Invalid command " + parts[1] }, { quoted: originalMsgObj });
+        }
+        return;
+    }
     sendIPCMessage("nmsg", "§2[WhatsApp]§r " + message); // new message
 }
 
 async function messageReceivedMC(message) {
     if (!globalSock) {
+        return;
+    }
+    if (message.includes("§2[WhatsApp]§r ")) {
         return;
     }
     await globalSock.sendMessage(targetedGroupChatJid, { text: "*[Minecraft]* " + message });
@@ -397,6 +424,12 @@ async function ipcMessageReceived(type, content) {
                     }
                 });
                 sendIPCMessage("clok", ""); // clear logs ok
+                break;
+            }
+            case "plyl": { // player list
+                if (onPlayerListReceived != null) {
+                    onPlayerListReceived(content);
+                }
                 break;
             }
             default: {
