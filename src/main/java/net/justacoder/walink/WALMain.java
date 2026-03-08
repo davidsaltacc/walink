@@ -46,7 +46,7 @@ public class WALMain implements ModInitializer {
             - /walink vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the WhatsApp group chat.
             - /walink stop: Stops WALink. Can be restarted with /restart.
             - /walink restart: Restarts the WALink Node.js backend to resolve possible issues and freezes, or just starts it if it wasn't started before.
-            - /walink config chat_name: Set the target group chat name. Warning: It has to be a unique group chat name, and needs to exactly match the name. If two group chats with the same name exist, it is essentially a gamble where the messages will end up in.
+            - /walink chat_name: Set the target group chat name. Warning: It has to be a unique group chat name, and needs to exactly match the name. If two group chats with the same name exist, it is essentially a gamble where the messages will end up in.
             - /walink clear_logs: Clears old logs (except the one for the current run).""";
 
     // TODO
@@ -70,6 +70,9 @@ public class WALMain implements ModInitializer {
         } catch (IOException e) {
             throw new RuntimeException("NodeJS could not be found or run. It is required for running WALink. Please install and put it in your path.", e);
         }
+
+        WALConfig.loadConfig();
+        Runtime.getRuntime().addShutdownHook(new Thread(WALConfig::saveConfig, "WALink Shutdown Config Save"));
 
         LOGGER.info("Initializing WALink");
 
@@ -205,6 +208,9 @@ public class WALMain implements ModInitializer {
 
         }, "WALink IPC").start();
 
+        if (WALConfig.State.groupChatName != null) {
+            sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
+        }
         sendIPCMessage(new IPCMessage("init", ""));
 
         onStartError = msg -> LOGGER.error("Error occurred while trying to start WALink: {}", msg);
@@ -307,16 +313,16 @@ public class WALMain implements ModInitializer {
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("config").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK))
-                                        .then(
-                                                CommandManager.literal("chat_name").then(
-                                                        CommandManager.argument("name", StringArgumentType.string()).executes(context -> {
-                                                            sendIPCMessage(new IPCMessage("gcnm", StringArgumentType.getString(context, "name")));
-                                                            context.getSource().sendMessage(Text.of("Successfully set group chat name"));
-                                                            return 1;
-                                                        })
-                                                )
-                                        )
+                                CommandManager.literal("chat_name").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).then(
+                                        CommandManager.argument("name", StringArgumentType.string()).executes(context -> {
+
+                                            WALConfig.State.groupChatName = StringArgumentType.getString(context, "name");
+                                            sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
+                                            context.getSource().sendMessage(Text.of("Successfully set group chat name"));
+
+                                            return 1;
+                                        })
+                                )
                         ).then(
                                 CommandManager.literal("deauth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
 
