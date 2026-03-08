@@ -1,7 +1,5 @@
 # WALink
 
-TODO UPDATE THIS README AFTER REWRITE, LOTS OF THINGS MAY HAVE CHANGED
-
 Experimental Minecraft mod that links the in-game text chat to a WhatsApp group chat without eating up the ram of your average Chrome tab. 
 (The reason I mention the RAM usage is, some other implementations of WhatsApp automation literally open up a Chrome tab!)
 
@@ -19,38 +17,42 @@ Also to be noted is that this of course lowers the security of your WhatsApp gro
 
 # Installing / Setup
 
-Put it in your fabric mod folder. Launch the game/server. Once launched, run /walink config chat_name NAME to configure the name of the group chat you want to link (MUST BE A GROUP CHAT). Run /walink auth, and wait for a QR code. Scan that with your phone to link WALink with your WhatsApp account. Run /walink restart to fully start the backend and make WALink work.
-
-# Uninstalling
-
-Just remove the mod. Optionally you may want to delete the walink-data folder, as its just leftover files by WALink that may or may not also contain sensitive information. Before that, in the game you can also run /walink deauth before to save you some work.
+Install [Node.js](https://nodejs.org/en/download) along with npm (important!) and make sure it is on your path (on the download page, below you can just download pre-built installers/binaries for your system). Put the mod .jar in your fabric mod folder. Launch the game/server. Once launched, run /walink chat_name NAME to configure the name of the group chat you want to link (MUST BE A GROUP CHAT). Run /walink auth, and wait for a QR code. Scan that with your phone to link WALink with your WhatsApp account. Run /walink restart to fully start the backend and make WALink work.
 
 ### Known Issues
 
 It rarely may happen that when starting WALink, it tries to sync old chats, says "0 percent" a few times, then gets stuck and never continues (wait for about a minute to be 100% sure it's stuck). This is most likely an issue with the underlying library WALink uses, and the only way to fix this is just deauthenticating WALink and re-authenticating.
 
-It also may happen that it just gets stuck while authenticating or starting, in that case just stop and re-try the process. 
+It also may happen that it just gets stuck while authenticating or starting, in that case just stop and re-try the process.
+
+# Configuring
+
+The targeted group chat can be set via commands (more above and below). The rest of the config can be edited via the config file (config/walink.json).
+
+# Uninstalling
+
+Just remove the mod. Optionally you may want to delete the walink-data folder, as its just leftover files by WALink that may or may not also contain sensitive information. Before that, in the game you can also run /walink deauth before to save you some work.
 
 # Commands
 
 In Minecraft:
-- /walink help: [NOT IMPLEMENTED] Get a small help message about these commands.
+- /walink help: Get a small help message about these commands.
 - /walink auth: Authenticates WALink with your WhatsApp account. Usually required to run only the first time, unless re-authentication is neccessary. In your WhatsApp app, WALink will appear listed as "Google Chrome (Windows)", as the underlying library imitates a WhatsApp Web instance.
 - /walink deauth: Deauthenticate WALink from your WhatsApp account. WALink needs to be running for it to be unlinked in the WhatsApp app, otherwise it will remain in the app (a zombie, really. WALink will ask for new authentication next time). Useful when issues concerning authentication/login occur. 
 - /walink vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the WhatsApp group chat.
 - /walink stop: Stops WALink. Can be restarted with /restart.
 - /walink restart: Restarts the WALink Node.js backend to resolve possible issues and freezes, or just starts it if it wasn't started before.
-- /walink config chat_name: Set the target group chat name. Warning: It has to be a unique group chat name, and needs to exactly match the name. If two group chats with the same name exist, it is essentially a gamble where the messages will end up in. 
+- /walink chat_name: Set the target group chat name. Warning: It has to be a unique group chat name, and needs to exactly match the name. If two group chats with the same name exist, it is essentially a gamble where the messages will end up in. 
 - /walink clear_logs: Clears old logs (except the one for the current run).
 
 In WhatsApp:
-- .mc help: [NOT IMPLEMENTED] Get a small help message about these commands.
+- .mc help: Get a small help message about these commands.
 - .mc vanish on/off: [NOT IMPLEMENTED] Allows your messages to not appear in the Minecraft text chat
-- .mc players: [NOT IMPLEMENTED] Shows a list of the players currently on the server. /walink vanish does not protect from appearing in this list.
+- .mc players: Shows a list of the players currently on the server. /walink vanish does not protect from appearing in this list.
 
 # Technical Details
 
-It requires Node.js to be installed. It bundles a node program along with baileys to allow lightweight communication with WhatsApp without heavy resource usage.
+It requires Node.js and npm to be installed. It bundles a node program along with baileys to allow lightweight communication with WhatsApp without heavy resource usage.
 
 # Supported Versions
 
@@ -61,7 +63,3 @@ Older versions may be supported, you'd probably have to edit the fabric.mod.json
 Backports to major old versions may come (it's really just about rebuilding the mod with like 1 value changed and seeing if everything works as it should, which 99% of the time it should anyway). 
 
 If you want the mod for a specific version, open an issue on the GitHub. ill try to recompile and test for that specific version of the game.
-
-# TODOs/Future Plans
-
-TODO: resolve issue in scenario: auth state exists, though link removed in WA. expected behavior: reset auth state, re-request auth. current behavior: infinite blocking on startup
