@@ -27,7 +27,7 @@ Just remove the mod. Optionally you may want to delete the walink-data folder, a
 
 ### Known Issues
 
-It rarely may happen that when starting WALink, it tries to sync old chats, says "0 percent" a few times, then gets stuck and never continues. This is most likely an issue with the underlying library WALink uses, and the only way to fix this is just deauthenticating WALink and re-authenticating.
+It rarely may happen that when starting WALink, it tries to sync old chats, says "0 percent" a few times, then gets stuck and never continues (wait for about a minute to be 100% sure it's stuck). This is most likely an issue with the underlying library WALink uses, and the only way to fix this is just deauthenticating WALink and re-authenticating.
 
 It also may happen that it just gets stuck while authenticating or starting, in that case just stop and re-try the process. 
 
