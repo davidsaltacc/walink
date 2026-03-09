@@ -50,7 +50,6 @@ public class WALMain implements ModInitializer {
             - /walink clear_logs: Clears old logs (except the one for the current run).""";
 
     // TODO
-    // actually do something with config options, right now is hardcoded in js code
     // vanishing
 
     private static MinecraftServer mcServer;
@@ -211,6 +210,8 @@ public class WALMain implements ModInitializer {
         if (WALConfig.State.groupChatName != null) {
             sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
         }
+        sendIPCMessage(new IPCMessage("pfmc", WALConfig.State.prefixInMinecraft));
+        sendIPCMessage(new IPCMessage("pfwa", WALConfig.State.prefixInWhatsapp));
         sendIPCMessage(new IPCMessage("init", ""));
 
         onStartError = msg -> LOGGER.error("Error occurred while trying to start WALink: {}", msg);

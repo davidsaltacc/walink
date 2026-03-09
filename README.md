@@ -27,7 +27,7 @@ It also may happen that it just gets stuck while authenticating or starting, in 
 
 # Configuring
 
-The targeted group chat can be set via commands (more above and below). The rest of the config can be edited via the config file (config/walink.json).
+The targeted group chat can be set via commands (more above and below). The rest of the config can be edited via the config file (config/walink.json). To apply manual changes to the config, you will need to first shut down the server completely! Otherwise, it will just overwrite the config on exit.
 
 # Uninstalling
 

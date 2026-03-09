@@ -31,6 +31,9 @@ const logger = P({
 let targetedGroupchatName;
 let targetedGroupChatJid;
 
+let prefixInWhatsapp;
+let prefixInMinecraft;
+
 let allChats = [];
 let allContacts = {};
 
@@ -133,6 +136,11 @@ async function startFull(onFail, onSyncProgress) {
 
     if (targetedGroupchatName == null) {
         onFail("Cannot start without having a valid group chat name.");
+        return;
+    }
+
+    if (prefixInMinecraft == null || prefixInWhatsapp == null) {
+        onFail("This should not happen. Configured prefix in WhatsApp or Minecraft was null");
         return;
     }
 
@@ -328,7 +336,7 @@ function sendIPCMessage(type, content) {
 let onPlayerListReceived;
 
 async function messageReceivedWA(message, originalMsgObj) {
-    if (message.includes("*[Minecraft]* ")) {
+    if (message.includes(prefixInWhatsapp + "§r: ")) {
         return;
     }
     if (message.split("§r: ")[1].startsWith(".mc")) {
@@ -350,17 +358,17 @@ async function messageReceivedWA(message, originalMsgObj) {
         }
         return;
     }
-    sendIPCMessage("nmsg", "§2[WhatsApp]§r " + message); // new message
+    sendIPCMessage("nmsg", prefixInMinecraft + message); // new message
 }
 
 async function messageReceivedMC(message) {
     if (!globalSock) {
         return;
     }
-    if (message.includes("§2[WhatsApp]§r ")) {
+    if (message.includes(prefixInMinecraft)) {
         return;
     }
-    await globalSock.sendMessage(targetedGroupChatJid, { text: "*[Minecraft]* " + message });
+    await globalSock.sendMessage(targetedGroupChatJid, { text: prefixInWhatsapp + message });
 }
 
 async function ipcMessageReceived(type, content) {
@@ -430,6 +438,14 @@ async function ipcMessageReceived(type, content) {
                 if (onPlayerListReceived != null) {
                     onPlayerListReceived(content);
                 }
+                break;
+            }
+            case "pfwa": { // prefix in whatsapp
+                prefixInWhatsapp = content;
+                break;
+            }
+            case "pfmc": { // prefix in minecraft
+                prefixInMinecraft = content;
                 break;
             }
             default: {
