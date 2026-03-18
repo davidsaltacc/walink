@@ -69,6 +69,16 @@ async function makeSock(isForAuth) {
     
     sock.ev.on("creds.update", saveCreds);
 
+    sock.ev.on("groups.update", async ([ event ]) => {
+        const metadata = await sock.groupMetadata(event.id);
+        groupCache.set(event.id, metadata);
+    });
+    
+    sock.ev.on("group-participants.update", async event => {
+        const metadata = await sock.groupMetadata(event.id);
+        groupCache.set(event.id, metadata);
+    });
+
     return sock;
 
 }
@@ -132,7 +142,9 @@ async function authenticate(onQrCodeUrl, onFail) {
 
 }
 
-async function startFull(onFail, onSyncProgress) {
+let restartTries = 0;
+
+async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
     if (targetedGroupchatName == null) {
         onFail("Cannot start without having a valid group chat name.");
@@ -168,13 +180,33 @@ async function startFull(onFail, onSyncProgress) {
                 }
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
-                    makeFullSock();
+                    makeFullSock(done, rej);
                 } else if (connection === "close" && !!lastDisconnect?.error) {
-                    onFail(lastDisconnect?.error?.output);
-                    rej(lastDisconnect?.error?.output);
+
+                    if (restartTries > 5) {
+                        onConnectionInfo("Connection closed. Waiting for 5 seconds, then trying to reconnect.");
+                        await new Promise((res, _) => setTimeout(res, 5_000));
+                    } else if (restartTries > 10) {
+                        onConnectionInfo("Connection closed. Waiting for 30 seconds, then trying to reconnect.");
+                        await new Promise((res, _) => setTimeout(res, 30_000));
+                    } else if (restartTries > 20) {
+                        onConnectionInfo("Connection closed after 20 retries, giving up.");
+                        onFail(lastDisconnect?.error?.output);
+                        rej(lastDisconnect?.error?.output);
+                    } else {
+                        onConnectionInfo("Connection closed. Trying to reconnect.");
+                    }
+
+                    restartTries++;
+
+                    await startFull(onFail, onSyncProgress, onConnectionInfo);
+
                 }
 
                 if (connection === "open") {
+
+                    restartTries = 0;
+
                     if (existsSync("chats_state/chats.json")) {
                         allChats.forEach(chat => {
                             if (chat.name === targetedGroupchatName && chat.id) {
@@ -417,6 +449,9 @@ async function ipcMessageReceived(type, content) {
                 }, progress => {
                     sendIPCMessage("sync", "" + progress); // sync progress
                     logger.info("Sync progress at " + progress);
+                }, connectionInfo => {
+                    sendIPCMessage("cnin", connectionInfo); // connection info
+                    logger.info("received important connection info: " + connectionInfo);
                 });
                 sendIPCMessage("wrdy", ""); // ready
                 break;

@@ -50,6 +50,8 @@ public class WALMain implements ModInitializer {
             - /walink clear_logs: Clears old logs (except the one for the current run).""";
 
     // TODO
+    // clickable links in sent messages
+    // config for start/shutdown messages
     // vanishing
 
     private static MinecraftServer mcServer;
@@ -187,6 +189,11 @@ public class WALMain implements ModInitializer {
                             onLogsCleared.accept(message.data);
                         }
                     }
+                    case "cnin" -> {
+                        if (onConnectionInfo != null) {
+                            onConnectionInfo.accept(message.data);
+                        }
+                    }
                     case "lply" -> {
                         if (mcServer == null) {
                             sendIPCMessage(new IPCMessage("plyl", "Server not started."));
@@ -207,13 +214,6 @@ public class WALMain implements ModInitializer {
 
         }, "WALink IPC").start();
 
-        if (WALConfig.State.groupChatName != null) {
-            sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
-        }
-        sendIPCMessage(new IPCMessage("pfmc", WALConfig.State.prefixInMinecraft));
-        sendIPCMessage(new IPCMessage("pfwa", WALConfig.State.prefixInWhatsapp));
-        sendIPCMessage(new IPCMessage("init", ""));
-
         onStartError = msg -> LOGGER.error("Error occurred while trying to start WALink: {}", msg);
         onSyncProgress = msg -> LOGGER.info("Syncing chats, progress at {} percent", msg);
         onBackendReady = ignored -> {
@@ -221,6 +221,19 @@ public class WALMain implements ModInitializer {
                 sendIPCMessage(new IPCMessage("nmsg", "_Server starting..._"));
             }
         };
+        onConnectionInfo = msg -> {
+            LOGGER.warn("Important connection info received: {}", msg);
+            if (mcServer != null) {
+                mcServer.getPlayerManager().broadcast(Text.of(WALConfig.State.prefixInMinecraft + "§6" + msg + "§r"), false);
+            }
+        };
+
+        if (WALConfig.State.groupChatName != null) {
+            sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
+        }
+        sendIPCMessage(new IPCMessage("pfmc", WALConfig.State.prefixInMinecraft));
+        sendIPCMessage(new IPCMessage("pfwa", WALConfig.State.prefixInWhatsapp));
+        sendIPCMessage(new IPCMessage("init", ""));
 
     }
 
@@ -246,6 +259,7 @@ public class WALMain implements ModInitializer {
     private static Consumer<String> onSyncProgress;
     private static Consumer<String> onClosedSock;
     private static Consumer<String> onLogsCleared;
+    private static Consumer<String> onConnectionInfo;
 
     @Override
     public void onInitialize() {
