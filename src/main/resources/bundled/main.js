@@ -180,7 +180,9 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
                 }
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
+
                     makeFullSock(done, rej);
+                    
                 } else if (connection === "close" && !!lastDisconnect?.error) {
 
                     if (restartTries > 5) {
@@ -199,13 +201,16 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
                     restartTries++;
 
-                    await startFull(onFail, onSyncProgress, onConnectionInfo);
+                    makeFullSock(done, rej);
 
                 }
 
                 if (connection === "open") {
 
-                    restartTries = 0;
+                    if (restartTries > 0) {
+                        onConnectionInfo("Successfully restored connection.");
+                        restartTries = 0;
+                    }
 
                     if (existsSync("chats_state/chats.json")) {
                         allChats.forEach(chat => {
@@ -441,6 +446,7 @@ async function ipcMessageReceived(type, content) {
                     await globalSock.end();
                 }
                 sendIPCMessage("scls", ""); // socket closed
+                break;
             }
             case "init": { // init
                 await startFull(reason => {
