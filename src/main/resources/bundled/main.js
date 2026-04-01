@@ -387,6 +387,7 @@ function sendIPCMessage(type, content) {
     }
     const buf = Buffer.alloc(4);
     buf.writeUInt32BE(Buffer.byteLength(data, "utf8"));
+    logger.info("sending " + type + " message");
     writeSync(1, Buffer.concat([ buf, Buffer.from(data, "utf8") ]));
 }
 

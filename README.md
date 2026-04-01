@@ -27,6 +27,8 @@ It rarely may happen that when starting WALink, it tries to sync old chats, says
 
 It also may happen that it just gets stuck while authenticating or starting, in that case just stop and re-try the process.
 
+One fix is always to simply stop minecraft, remove the walink-data folder all together, and try again. It sometimes runs into inexplicable issues. Debugging them is a nightmare as you never know if it's a library, my own code, or something else entirely, and then when I try to reproduce the issue it's just completely gone.
+
 # Configuring
 
 The targeted group chat can be set via commands (more above and below). The rest of the config can be edited via the config file (config/walink.json). To apply manual changes to the config, you will need to first shut down the server completely! Otherwise, it will just overwrite the config on exit.

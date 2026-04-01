@@ -299,8 +299,8 @@ public class WALMain implements ModInitializer {
                                         onStartError = msg -> context.getSource().sendMessage(Text.of("Error occurred while trying to start WALink: " + msg));
                                         onSyncProgress = msg -> context.getSource().sendMessage(Text.of("Syncing chats, progress at " + msg + " percent"));
                                         onBackendReady = ignored2 -> context.getSource().sendMessage(Text.of("Successfully restarted WALink"));
-                                        sendIPCMessage(new IPCMessage("init", ""));
                                         onClosedSock = null;
+                                        sendIPCMessage(new IPCMessage("init", ""));
                                     };
 
                                     sendIPCMessage(new IPCMessage("stop", ""));
@@ -405,6 +405,7 @@ public class WALMain implements ModInitializer {
         try {
             String data = message.type + message.data;
             byte[] bytes = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(data.getBytes(StandardCharsets.UTF_8).length).array();
+            LOGGER.info("Sent IPC message of type {}", message.type);
             nodeStdin.write(bytes);
             nodeStdin.write(data.getBytes(StandardCharsets.UTF_8));
             nodeStdin.flush();
