@@ -7,7 +7,7 @@ Bugs, crashes and freezes may occur, it's still experimental. (Most of this is j
 
 [Most issues should be gone, but there is always a small chance something goes wrong anyway. The best first fix is probably to just restart walink.](https://en.wikipedia.org/wiki/Ostrich_algorithm)
 
-Should reconnect after network disrupts for a short time, not guaranteed it works though. Sometimes a manual restart is neccessary.
+Should reconnect after network disrupts for a short time, not guaranteed it works though. Sometimes a manual restart is necessary.
 
 # Disclaimer
 
