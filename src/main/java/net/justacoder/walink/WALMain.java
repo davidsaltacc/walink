@@ -300,6 +300,7 @@ public class WALMain implements ModInitializer {
                                         onSyncProgress = msg -> context.getSource().sendMessage(Text.of("Syncing chats, progress at " + msg + " percent"));
                                         onBackendReady = ignored2 -> context.getSource().sendMessage(Text.of("Successfully restarted WALink"));
                                         sendIPCMessage(new IPCMessage("init", ""));
+                                        onClosedSock = null;
                                     };
 
                                     sendIPCMessage(new IPCMessage("stop", ""));
