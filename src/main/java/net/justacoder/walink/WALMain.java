@@ -300,6 +300,7 @@ public class WALMain implements ModInitializer {
                                         onStartError = msg -> context.getSource().sendMessage(Text.of("Error occurred while trying to start WALink: " + msg));
                                         onSyncProgress = msg -> context.getSource().sendMessage(Text.of("Syncing chats, progress at " + msg + " percent"));
                                         onBackendReady = ignored2 -> context.getSource().sendMessage(Text.of("Successfully restarted WALink"));
+                                        sendIPCMessage(new IPCMessage("init", ""));
                                     };
 
                                     sendIPCMessage(new IPCMessage("stop", ""));

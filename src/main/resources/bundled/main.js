@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, openAsBlob, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, mkdirSync, openAsBlob, readdirSync, readFileSync, rmdirSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState, makeCacheableSignalKeyStore } from "baileys";
 import dateFormat from "dateformat";
@@ -7,9 +7,6 @@ import QRCode from "qrcode";
 import P from "pino";
 
 const DEBUG = false;
-
-const { state, saveCreds } = await useMultiFileAuthState("auth_state");
-const groupCache = new NodeCache();
 
 if (!existsSync("logs")) {
     mkdirSync("logs");
@@ -47,16 +44,21 @@ if (existsSync("chats_state/chats.json")) {
 let globalSock;
 let anySockExists = false;
 
+let latestVersion = [
+    ...JSON.parse(await (await fetch("https://raw.githubusercontent.com/wppconnect-team/wa-version/refs/heads/main/versions.json")).text())["currentVersion"].replace("-alpha", "").split("."), "alpha"
+];
+
 async function makeSock(isForAuth) {
+    
+    const { state, saveCreds } = await useMultiFileAuthState("auth_state");
+    const groupCache = new NodeCache();
 
     const conf = {
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
         },
-        version: [
-            ...JSON.parse(await (await fetch("https://raw.githubusercontent.com/wppconnect-team/wa-version/refs/heads/main/versions.json")).text())["currentVersion"].replace("-alpha", "").split("."), "alpha"
-        ],
+        version: latestVersion,
         logger,
         browser: Browsers.windows("Google Chrome"),
         markOnlineOnConnect: false,
@@ -90,8 +92,11 @@ async function authenticate(onQrCodeUrl, onFail) {
         return;
     }
 
+    rmSync("auth_state", { recursive: true });
+    mkdirSync("auth_state");
+
     anySockExists = true;
-    let sock = await makeSock(true);
+    let sock = globalSock = await makeSock(true);
 
     await new Promise((res, rej) => {
     
@@ -103,11 +108,12 @@ async function authenticate(onQrCodeUrl, onFail) {
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
                     sock = await makeSock(true);
-                    sock.ev.on("creds.update", saveCreds);
                     sock.ev.on("connection.update", onUpdate);
                 } else if (connection === "close" && !!lastDisconnect?.error) {
+                    logger.info("connection closed, error code: " + lastDisconnect.error.output?.statusCode);
                     onFail(lastDisconnect?.error?.output);
                     rej(lastDisconnect?.error?.output);
+                    return;
                 }
 
                 if (qr) {
@@ -129,6 +135,7 @@ async function authenticate(onQrCodeUrl, onFail) {
 
             } catch (e) {
                 rej(e);
+                return;
             }
 
         };
@@ -175,8 +182,8 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
                 if (qr) {
                     onFail("Authentication not set up. Please link WALink before attempting a full start.");
-                    await sock.end();
                     done();
+                    return;
                 }
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode === DisconnectReason.restartRequired) {
@@ -184,6 +191,14 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
                     makeFullSock(done, rej);
                     
                 } else if (connection === "close" && !!lastDisconnect?.error) {
+
+                    logger.info("connection closed, error code: " + lastDisconnect.error.output?.statusCode);
+
+                    if (lastDisconnect.error.output?.statusCode === DisconnectReason.loggedOut) {
+                        onFail("Invalid session. Please re-authenticate");
+                        rej("Invalid session. Please re-authenticate");
+                        return;
+                    }
 
                     if (restartTries > 5) {
                         onConnectionInfo("Connection closed. Waiting for 5 seconds, then trying to reconnect.");
@@ -195,8 +210,10 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
                         onConnectionInfo("Connection closed after 20 retries, giving up.");
                         onFail(lastDisconnect?.error?.output);
                         rej(lastDisconnect?.error?.output);
+                        return;
                     } else {
-                        onConnectionInfo("Connection closed. Trying to reconnect.");
+                        onConnectionInfo("Connection closed. Waiting for 1 second, then trying to reconnect.");
+                        await new Promise((res, _) => setTimeout(res, 1_000));
                     }
 
                     restartTries++;
@@ -227,6 +244,7 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
             } catch (e) {
                 rej(e);
+                return;
             }
 
         });
@@ -318,6 +336,7 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
         } catch (e) {
             onFail(e);
         }
+        res();
     });
 
     anySockExists = false;
@@ -413,14 +432,18 @@ async function ipcMessageReceived(type, content) {
     try {
         switch (type) {
             case "auth": { // auth
-                await authenticate(qrUrl => {
-                    logger.info("QR code received at url " + qrUrl);
-                    sendIPCMessage("qrcd", qrUrl); // qr code
-                }, reason => {
-                    sendIPCMessage("auer", "" + reason); // auth error
-                    logger.error("Issue occured trying to authenticate: " + reason);
-                });
-                sendIPCMessage("auok", ""); // auth ok
+                try {
+                    await authenticate(qrUrl => {
+                        logger.info("QR code received at url " + qrUrl);
+                        sendIPCMessage("qrcd", qrUrl); // qr code
+                    }, reason => {
+                        sendIPCMessage("auer", "" + reason); // auth error
+                        logger.error("Issue occured trying to authenticate: " + reason);
+                    });
+                    sendIPCMessage("auok", ""); // auth ok
+                } catch (e) {
+                    sendIPCMessage("auer", "" + e); // auth error
+                }
                 break;
             }
             case "deau": { // deauth
@@ -444,6 +467,7 @@ async function ipcMessageReceived(type, content) {
             case "stop": { // stop
                 if (globalSock != null) {
                     await globalSock.end();
+                    anySockExists = false;
                 }
                 sendIPCMessage("scls", ""); // socket closed
                 break;
