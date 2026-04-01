@@ -182,7 +182,7 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
                 if (qr) {
                     onFail("Authentication not set up. Please link WALink before attempting a full start.");
-                    done();
+                    rej("Authentication not set up. Please link WALink before attempting a full start.");
                     return;
                 }
 
@@ -332,14 +332,14 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
 
     await new Promise((res, rej) => {
         try {
-            makeFullSock(res, rej);
+            makeFullSock(res, async s => {
+                await globalSock.end();
+                rej(s);
+            });
         } catch (e) {
             onFail(e);
         }
-        res();
     });
-
-    anySockExists = false;
 
 }
 

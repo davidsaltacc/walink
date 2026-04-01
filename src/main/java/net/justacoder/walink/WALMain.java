@@ -50,7 +50,6 @@ public class WALMain implements ModInitializer {
             - /walink clear_logs: Clears old logs (except the one for the current run).""";
 
     // TODO
-    // clickable links in sent messages
     // config for start/shutdown messages
     // vanishing
 
