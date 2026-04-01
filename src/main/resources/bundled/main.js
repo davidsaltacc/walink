@@ -334,6 +334,7 @@ async function startFull(onFail, onSyncProgress, onConnectionInfo) {
         try {
             makeFullSock(res, async s => {
                 await globalSock.end();
+                anySockExists = false;
                 rej(s);
             });
         } catch (e) {
