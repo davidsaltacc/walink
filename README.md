@@ -5,6 +5,8 @@ Experimental Minecraft mod that links the in-game text chat to a WhatsApp group 
 
 Bugs, crashes and freezes may occur, it's still experimental. (Most of this is just me not implementing enough error handling, so 99% of the time if something goes wrong, anything may happen instead of it just restarting or informing you.)
 
+[Most issues should be gone, but there is always a small chance something goes wrong anyway. The best first fix is probably to just restart walink.](https://en.wikipedia.org/wiki/Ostrich_algorithm)
+
 # Disclaimer
 
 I do not encourage the use of software to tamper with one's own WhatsApp account. This is merely for purposes of experimentation and a proof-of-concept.
@@ -17,7 +19,7 @@ Also to be noted is that this of course lowers the security of your WhatsApp gro
 
 # Installing / Setup
 
-Install [Node.js](https://nodejs.org/en/download) along with npm (important!) and make sure it is on your path (on the download page, below you can just download pre-built installers/binaries for your system). Put the mod .jar in your fabric mod folder. Launch the game/server. Once launched, run /walink chat_name NAME to configure the name of the group chat you want to link (MUST BE A GROUP CHAT). Run /walink auth, and wait for a QR code. Scan that with your phone to link WALink with your WhatsApp account. Run /walink restart to fully start the backend and make WALink work.
+Install [Node.js](https://nodejs.org/en/download) along with npm (important!) and make sure it is on your path (on the download page, below you can just download pre-built installers/binaries for your system). Put the mod .jar in your fabric mod folder. Launch the game/server. Once launched, run /walink chat_name NAME to configure the name of the group chat you want to link (MUST BE A GROUP CHAT) (MUST MATCH THE GROUP CHAT NAME EXACTLY). Run /walink auth, and wait for a QR code. Scan that with your phone to link WALink with your WhatsApp account. Run /walink restart to fully start the backend and make WALink work.
 
 ### Known Issues
 
