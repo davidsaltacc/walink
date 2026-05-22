@@ -6,7 +6,7 @@ import NodeCache from "node-cache";
 import QRCode from "qrcode";
 import P from "pino";
 
-const DEBUG = false;
+const DEBUG = true;
 
 if (!existsSync("logs")) {
     mkdirSync("logs");

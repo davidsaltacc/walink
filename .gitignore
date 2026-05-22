@@ -1,12 +1,3 @@
-# walink
-
-app.log
-app_stdout.log
-auth_state
-chats_state
-node_modules
-package-lock.json
-
 # gradle
 
 .gradle/
@@ -47,3 +38,8 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+auth_state
+chats_state
+logs
+node_modules

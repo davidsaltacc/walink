@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "${id}",
+  "id": "walink",
   "version": "${version}",
-  "name": "${name}",
+  "name": "WALink",
   "description": "Experimental mod to sync the ingame chat with a WhatsApp group chat.",
   "authors": [
     "WALink"
@@ -21,7 +21,7 @@
   "accessWidener": "walink.accesswidener",
   "depends": {
     "fabricloader": ">=0.15",
-    "minecraft": "${minecraft}",
+    "minecraft": ">=26 <27",
 	"fabric-api": "*"
   }
 }

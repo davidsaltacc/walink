@@ -7,12 +7,12 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.text.ClickEvent;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -197,7 +197,7 @@ public class WALMain implements ModInitializer {
                         if (mcServer == null) {
                             sendIPCMessage(new IPCMessage("plyl", "Server not started."));
                         }
-                        String text = String.join("\n", mcServer.getPlayerManager().getPlayerList().stream().map(p -> "- " + escapeStringForWA(p.getName().getString())).toList());
+                        String text = String.join("\n", mcServer.getPlayerList().getPlayers().stream().map(p -> "- " + escapeStringForWA(p.getName().getString())).toList());
                         if (text.isEmpty()) {
                             text = "No players are currently online.";
                         } else {
@@ -223,7 +223,7 @@ public class WALMain implements ModInitializer {
         onConnectionInfo = msg -> {
             LOGGER.warn("Important connection info received: {}", msg);
             if (mcServer != null) {
-                mcServer.getPlayerManager().broadcast(Text.of(WALConfig.State.prefixInMinecraft + "§6" + msg + "§r"), false);
+                mcServer.getPlayerList().broadcastSystemMessage(Component.literal(WALConfig.State.prefixInMinecraft + "§6" + msg + "§r"), false);
             }
         };
 
@@ -241,7 +241,7 @@ public class WALMain implements ModInitializer {
     }
 
     public static void messageReceivedWA(String content) {
-        mcServer.getPlayerManager().broadcast(Text.of(content), false);
+        mcServer.getPlayerList().broadcastSystemMessage(Component.literal(content), false);
     }
 
 
@@ -273,32 +273,32 @@ public class WALMain implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> sendIPCMessage(new IPCMessage("nmsg", "_Server stopping._")));
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
-                CommandManager.literal(MOD_ID)
+                Commands.literal(MOD_ID)
                         .then(
-                                CommandManager.literal("vanish")
-                                        .then(CommandManager.literal("off"))
-                                        .then(CommandManager.literal("on"))
+                                Commands.literal("vanish")
+                                        .then(Commands.literal("off"))
+                                        .then(Commands.literal("on"))
                         ).then(
-                                CommandManager.literal("help").executes(context -> {
-                                    context.getSource().sendMessage(Text.of(HELP_TEXT));
+                                Commands.literal("help").executes(context -> {
+                                    context.getSource().sendSystemMessage(Component.literal(HELP_TEXT));
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("stop").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
+                                Commands.literal("stop").requires(Commands.hasPermission(Commands.LEVEL_ADMINS)).executes(context -> {
 
-                                    onClosedSock = ignored -> context.getSource().sendMessage(Text.of("Successfully stopped WALink"));
+                                    onClosedSock = ignored -> context.getSource().sendSystemMessage(Component.literal("Successfully stopped WALink"));
 
                                     sendIPCMessage(new IPCMessage("stop", ""));
 
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("restart").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
+                                Commands.literal("restart").requires(Commands.hasPermission(Commands.LEVEL_ADMINS)).executes(context -> {
 
                                     onClosedSock = ignored -> {
-                                        onStartError = msg -> context.getSource().sendMessage(Text.of("Error occurred while trying to start WALink: " + msg));
-                                        onSyncProgress = msg -> context.getSource().sendMessage(Text.of("Syncing chats, progress at " + msg + " percent"));
-                                        onBackendReady = ignored2 -> context.getSource().sendMessage(Text.of("Successfully restarted WALink"));
+                                        onStartError = msg -> context.getSource().sendSystemMessage(Component.literal("Error occurred while trying to start WALink: " + msg));
+                                        onSyncProgress = msg -> context.getSource().sendSystemMessage(Component.literal("Syncing chats, progress at " + msg + " percent"));
+                                        onBackendReady = ignored2 -> context.getSource().sendSystemMessage(Component.literal("Successfully restarted WALink"));
                                         onClosedSock = null;
                                         sendIPCMessage(new IPCMessage("init", ""));
                                     };
@@ -308,50 +308,50 @@ public class WALMain implements ModInitializer {
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("auth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
+                                Commands.literal("auth").requires(Commands.hasPermission(Commands.LEVEL_OWNERS)).executes(context -> {
                                     onQrCode = qr -> {
-                                        MutableText message = Text.literal("Authentication QR code available at ");
-                                        message.append(Text.literal(qr.strip()).styled(style -> {
+                                        MutableComponent message = Component.literal("Authentication QR code available at ");
+                                        message.append(Component.literal(qr.strip()).withStyle(style -> {
                                             try {
-                                                return style.withUnderline(true).withColor(Formatting.DARK_BLUE).withClickEvent(new ClickEvent.OpenUrl(new URI(qr.strip())));
+                                                return style.withUnderlined(true).withColor(ChatFormatting.DARK_BLUE).withClickEvent(new ClickEvent.OpenUrl(new URI(qr.strip())));
                                             } catch (URISyntaxException e) {
                                                 throw new RuntimeException("This should not happen. Invalid QR code image URL received", e);
                                             }
                                         }));
                                         message.append(" - please scan this to link WALink with your WhatsApp account.");
-                                        context.getSource().sendMessage(message);
+                                        context.getSource().sendSystemMessage(message);
                                     };
-                                    onAuthError = msg -> context.getSource().sendMessage(Text.of("Error occurred while authenticating WALink: " + msg));
-                                    onAuthOk = empty -> context.getSource().sendMessage(Text.of("Successfully authenticated WALink with your WhatsApp account."));
+                                    onAuthError = msg -> context.getSource().sendSystemMessage(Component.literal("Error occurred while authenticating WALink: " + msg));
+                                    onAuthOk = empty -> context.getSource().sendSystemMessage(Component.literal("Successfully authenticated WALink with your WhatsApp account."));
 
                                     sendIPCMessage(new IPCMessage("auth", ""));
 
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("chat_name").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).then(
-                                        CommandManager.argument("name", StringArgumentType.string()).executes(context -> {
+                                Commands.literal("chat_name").requires(Commands.hasPermission(Commands.LEVEL_OWNERS)).then(
+                                        Commands.argument("name", StringArgumentType.string()).executes(context -> {
 
                                             WALConfig.State.groupChatName = StringArgumentType.getString(context, "name");
                                             sendIPCMessage(new IPCMessage("gcnm", WALConfig.State.groupChatName));
-                                            context.getSource().sendMessage(Text.of("Successfully set group chat name"));
+                                            context.getSource().sendSystemMessage(Component.literal("Successfully set group chat name"));
 
                                             return 1;
                                         })
                                 )
                         ).then(
-                                CommandManager.literal("deauth").requires(CommandManager.requirePermissionLevel(CommandManager.OWNERS_CHECK)).executes(context -> {
+                                Commands.literal("deauth").requires(Commands.hasPermission(Commands.LEVEL_OWNERS)).executes(context -> {
 
-                                    onDeAuthOk = ignored -> context.getSource().sendMessage(Text.of("Successfully deauthenticated WALink"));
+                                    onDeAuthOk = ignored -> context.getSource().sendSystemMessage(Component.literal("Successfully deauthenticated WALink"));
 
                                     sendIPCMessage(new IPCMessage("deau", ""));
 
                                     return 1;
                                 })
                         ).then(
-                                CommandManager.literal("clear_logs").requires(CommandManager.requirePermissionLevel(CommandManager.ADMINS_CHECK)).executes(context -> {
+                                Commands.literal("clear_logs").requires(Commands.hasPermission(Commands.LEVEL_ADMINS)).executes(context -> {
 
-                                    onLogsCleared = ignored -> context.getSource().sendMessage(Text.of("Successfully cleared logs"));
+                                    onLogsCleared = ignored -> context.getSource().sendSystemMessage(Component.literal("Successfully cleared logs"));
 
                                     sendIPCMessage(new IPCMessage("cllo", ""));
 
